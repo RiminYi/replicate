@@ -1,0 +1,111 @@
+---
+title: "Untitled"
+format: html
+editor: visual
+---
+
+```{r}
+# 假设 wide_descriptor 是您之前转换好的宽格式数据框
+# 假设 anchor_ids = c("ID_math", "ID_mech", "ID_social")
+
+# 获取所有其他技能的ID
+all_skill_ids <- colnames(wide_descriptor)
+other_skill_ids <- setdiff(all_skill_ids, c("O*NET-SOC Code", anchor_ids))
+
+# 重新排列 wide_descriptor 的列，确保锚点技能在前
+onet_wide_ordered <- wide_descriptor %>%
+  select(`O*NET-SOC Code`, all_of(anchor_ids), all_of(other_skill_ids))
+
+# 创建最终的矩阵
+onet_matrix_ordered <- onet_wide_ordered %>%
+  column_to_rownames(var = "O*NET-SOC Code") %>%
+  as.matrix()
+
+# 执行PCA (和之前一样)
+pca_result <- prcomp(onet_matrix_ordered, center = TRUE, scale. = TRUE)
+```
+
+```{r}
+# 1. 提取 F₃: 前3个主成分的得分矩阵 (N x 3)
+F3 <- pca_result$x[, 1:3]
+
+# 2. 提取 L₃: 前3个主成分的载荷矩阵 (3 x P)
+#    注意：pca_result$rotation 是 Px3 的，我们需要它的转置
+L3 <- t(pca_result$rotation[, 1:3])
+
+# 3. 构造 T = L₃,₃ (最关键的步骤)
+#    T 是 L₃ 的前三列，因为我们已经将锚点技能排在了最前面
+T_matrix <- L3[, 1:3]
+
+# L₃,₃ 是一个 3x3 矩阵，可以打印出来看一下
+# 它的每一行代表一个主成分，每一列代表一个锚点技能
+print("变换矩阵 T (即 L₃,₃):")
+print(T_matrix)
+```
+
+```{r}
+# 计算新的技能指数
+# 这就是您最终需要的职业技能得分
+final_skill_indices_paper <- F3 %*% T_matrix
+
+# 转换成数据框方便查看
+final_skill_indices_paper_df <- as.data.frame(final_skill_indices_paper)
+colnames(final_skill_indices_paper_df) <- c("Cognitive", "Manual", "Interpersonal")
+final_skill_indices_paper_df$`O*NET-SOC Code` <- rownames(F3)
+
+print("根据原文方法构造的最终技能指数 (前6行):")
+head(final_skill_indices_paper_df)
+```
+
+```{r}
+# 计算 T 的逆矩阵
+T_inv <- solve(T_matrix)
+
+# 计算新的载荷矩阵
+New_L <- T_inv %*% L3
+
+# 验证：查看新载荷矩阵的前三列（对应于锚点技能）
+# 这三列应该是单位矩阵 I
+verification_matrix <- New_L[, 1:3]
+
+print("验证：锚点技能在新维度上的载荷")
+print(verification_matrix)
+```
+
+```{r}
+final_skill_indices_paper_df
+```
+
+```{r}
+# 复制一份数据框，以免覆盖原始结果
+scaled_indices_df <- final_skill_indices_paper_df
+
+# 对 Cognitive 列进行缩放
+min_cog <- min(scaled_indices_df$Cognitive, na.rm = TRUE)
+max_cog <- max(scaled_indices_df$Cognitive, na.rm = TRUE)
+scaled_indices_df$Cognitive_scaled <- (scaled_indices_df$Cognitive - min_cog) / (max_cog - min_cog)
+
+# 对 Manual 列进行缩放
+min_man <- min(scaled_indices_df$Manual, na.rm = TRUE)
+max_man <- max(scaled_indices_df$Manual, na.rm = TRUE)
+scaled_indices_df$Manual_scaled <- (scaled_indices_df$Manual - min_man) / (max_man - min_man)
+
+# 对 Interpersonal 列进行缩放
+min_int <- min(scaled_indices_df$Interpersonal, na.rm = TRUE)
+max_int <- max(scaled_indices_df$Interpersonal, na.rm = TRUE)
+scaled_indices_df$Interpersonal_scaled <- (scaled_indices_df$Interpersonal - min_int) / (max_int - min_int)
+
+# 查看最终结果
+# 您会看到新的三列，其数值都在0和1之间
+head(scaled_indices_df)
+```
+
+```{r}
+job_mapping %>% 
+  filter(Title %>% str_detect("Molding, Coremaking, and Casting Machine Setters, Operators, and Tenders, Metal and Plastic"))
+```
+
+```{r}
+scaled_indices_df %>% 
+  filter(`O*NET-SOC Code` == "51-4072.00")
+```

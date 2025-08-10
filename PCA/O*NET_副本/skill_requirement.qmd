@@ -1,0 +1,466 @@
+---
+title: "skill requirement"
+format: html
+editor: visual
+---
+
+```{r}
+library(tidyverse)
+library(readxl)
+```
+
+## Read O\*NET Data
+
+```{r}
+skill <- read_xlsx("Skills.xlsx")
+abilities <- read_xlsx("Abilities.xlsx")
+knowledge <- read_xlsx("Knowledge.xlsx")
+work_activities <- read_xlsx("Work Activities.xlsx")
+work_context <- read_xlsx("Work Context.xlsx")
+```
+
+## Merge O\*NET Descriptors
+
+```{r}
+onet_descriptor <- skill %>% 
+  rbind(abilities) %>% 
+  rbind(knowledge) %>% 
+  rbind(work_activities) %>% 
+  mutate(Category = NA) %>% 
+  rbind(work_context)
+```
+
+For "LV" or "IM" descriptors, filer Scale equals "Level".
+
+For work contexts, filer Scale equals "CX" or "CT". (categories average values)
+
+```{r}
+merged_descriptor <- onet_descriptor %>% 
+  filter(`Scale ID` %in% c("LV", "CX", "CT"))
+
+merged_descriptor$`Element Name` %>% 
+  unique() %>% 
+  length()
+```
+
+```{r}
+merged_descriptor %>% 
+  names()
+```
+
+## Merged Data Clean
+
+```{r}
+wide_descriptor <- merged_descriptor %>% 
+  select("O*NET-SOC Code", "Element ID", "Data Value") %>% 
+  pivot_wider(
+    names_from = `Element ID`,
+    values_from = `Data Value`,
+    values_fill = 0
+  )
+```
+
+```{r}
+# 将数据框转换为PCA所需的数值矩阵
+#    第一列是Title，我们需要将其作为行名，然后移除
+job_titles <- wide_descriptor$`O*NET-SOC Code`
+onet_matrix <- wide_descriptor %>%
+  select(-`O*NET-SOC Code`) %>%
+  as.matrix()
+
+row.names(onet_matrix) <- job_titles
+
+# 查看一下处理好的矩阵维度
+# 行数应为独立职业的数量，列数应为独立技能的数量
+print(dim(onet_matrix))
+```
+
+### Mapping
+
+```{r}
+# 1. 创建技能ID到技能名称的映射表
+skill_mapping <- merged_descriptor %>%
+  select(`Element ID`, `Element Name`) %>%
+  distinct() # distinct() 会移除所有重复的行，确保每个ID只对应一个Name
+
+# 2. 创建职业代码到职业标题的映射表
+job_mapping <- merged_descriptor %>%
+  select(`O*NET-SOC Code`, `Title`) %>%
+  distinct()
+
+# 查看一下映射表是否正确
+head(skill_mapping)
+head(job_mapping)
+```
+
+## PCA
+
+```{r}
+# 设定锚点技能的ID，并按照理论上的层级排序
+# 1. Cognitive (最基础) -> 2. Manual -> 3. Interpersonal
+anchor_ids <- c("2.C.4.a", "2.C.3.e", "2.B.1.a") # 您的锚点ID
+
+# 获取所有其他技能的ID
+all_skill_ids <- colnames(wide_descriptor)
+other_skill_ids <- setdiff(all_skill_ids, c("O*NET-SOC Code", anchor_ids))
+
+# 重新排列 wide_descriptor 的列，确保锚点技能在前
+onet_wide_ordered <- wide_descriptor %>%
+  select(`O*NET-SOC Code`, all_of(anchor_ids), all_of(other_skill_ids))
+
+# 创建最终的矩阵
+onet_matrix_ordered <- onet_wide_ordered %>%
+  column_to_rownames(var = "O*NET-SOC Code") %>%
+  as.matrix()
+
+# 执行PCA (和之前一样)
+pca_result <- prcomp(onet_matrix_ordered, center = TRUE, scale. = TRUE)
+
+# 查看PCA结果的摘要
+summary(pca_result)
+```
+
+### Keep the First 3 Principal Components
+
+```{r}
+# 提取所有职业在前三个主成分上的得分（新坐标）
+job_components <- pca_result$x[, 1:3]
+
+# 提取 L₃: 前3个主成分的载荷矩阵 (3 x P)
+#    注意：pca_result$rotation 是 Px3 的，我们需要它的转置
+L3 <- t(pca_result$rotation[, 1:3])
+
+# 构造 T = L₃,₃ (最关键的步骤)
+#    T 是 L₃ 的前三列，因为我们已经将锚点技能排在了最前面
+T_matrix <- L3[, 1:3]
+
+# L₃,₃ 是一个 3x3 矩阵，可以打印出来看一下
+# 它的每一行代表一个主成分，每一列代表一个锚点技能
+print("变换矩阵 T (即 L₃,₃):")
+print(T_matrix)
+
+# 转换成数据框，方便查看和后续使用
+job_components_df <- as.data.frame(job_components)
+
+# 可以将职业标题加回来
+job_components_df$Title <- row.names(job_components_df)
+
+# 查看前几行结果
+head(job_components_df)
+```
+
+### Understand the Principal Components
+
+```{r}
+# 查看前三个主成分的载荷
+loadings <- pca_result$rotation[, 1:3]
+
+# 查看对PC1贡献最大的前10个技能
+pc1_loadings <- loadings[, "PC1"]
+head(pc1_loadings[order(abs(pc1_loadings), decreasing = TRUE)], 10)
+
+# 查看对PC2贡献最大的前10个技能
+pc2_loadings <- loadings[, "PC2"]
+head(pc2_loadings[order(abs(pc2_loadings), decreasing = TRUE)], 10)
+```
+
+```{r}
+# 1. 将PC1的载荷转换成一个方便操作的数据框
+#    行名中存储的是 Element ID
+pc1_loadings_df <- tibble(
+  `Element ID` = rownames(pca_result$rotation),
+  Loading = pca_result$rotation[, "PC1"] # 提取PC1的载荷值
+)
+
+# 2. 将载荷数据框与技能映射表连接
+pc1_interpretation <- pc1_loadings_df %>%
+  left_join(skill_mapping, by = "Element ID") %>% # 使用left_join合并
+  arrange(desc(abs(Loading))) # 按载荷的绝对值降序排列
+
+# 3. 查看PC1的含义 (现在同时有ID, Name和Loading值)
+print("PC1 的主要构成技能 (已连接名称):")
+head(pc1_interpretation, 10)
+
+# PC2, PC3等重复此操作
+pc2_loadings_df <- tibble(
+  `Element ID` = rownames(pca_result$rotation),
+  Loading = pca_result$rotation[, "PC2"]
+)
+pc2_interpretation <- pc2_loadings_df %>%
+  left_join(skill_mapping, by = "Element ID") %>%
+  arrange(desc(abs(Loading)))
+
+print("PC2 的主要构成技能 (已连接名称):")
+head(pc2_interpretation, 10)
+
+# PC3
+pc3_loadings_df <- tibble(
+  `Element ID` = rownames(pca_result$rotation),
+  Loading = pca_result$rotation[, "PC3"]
+)
+pc3_interpretation <- pc3_loadings_df %>%
+  left_join(skill_mapping, by = "Element ID") %>%
+  arrange(desc(abs(Loading)))
+
+print("PC3 的主要构成技能 (已连接名称):")
+head(pc3_interpretation, 10)
+```
+
+## 原文技能指数（牺牲正交性）
+
+```{r}
+# 计算新的技能指数
+final_skill_indices_paper <- F3 %*% T_matrix
+
+# 转换成数据框方便查看
+final_skill_indices_paper_df <- as.data.frame(final_skill_indices_paper)
+colnames(final_skill_indices_paper_df) <- c("Cognitive", "Manual", "Interpersonal")
+final_skill_indices_paper_df$`O*NET-SOC Code` <- rownames(F3)
+
+print("根据原文方法构造的最终技能指数 (前6行):")
+head(final_skill_indices_paper_df)
+```
+
+```{r}
+# 复制一份数据框，以免覆盖原始结果
+scaled_indices_df <- final_skill_indices_paper_df
+
+# 对 Cognitive 列进行缩放
+min_cog <- min(scaled_indices_df$Cognitive, na.rm = TRUE)
+max_cog <- max(scaled_indices_df$Cognitive, na.rm = TRUE)
+scaled_indices_df$Cognitive_scaled <- (scaled_indices_df$Cognitive - min_cog) / (max_cog - min_cog)
+
+# 对 Manual 列进行缩放
+min_man <- min(scaled_indices_df$Manual, na.rm = TRUE)
+max_man <- max(scaled_indices_df$Manual, na.rm = TRUE)
+scaled_indices_df$Manual_scaled <- (scaled_indices_df$Manual - min_man) / (max_man - min_man)
+
+# 对 Interpersonal 列进行缩放
+min_int <- min(scaled_indices_df$Interpersonal, na.rm = TRUE)
+max_int <- max(scaled_indices_df$Interpersonal, na.rm = TRUE)
+scaled_indices_df$Interpersonal_scaled <- (scaled_indices_df$Interpersonal - min_int) / (max_int - min_int)
+
+# 查看最终结果
+# 您会看到新的三列，其数值都在0和1之间
+head(scaled_indices_df)
+```
+
+------------------------------------------------------------------------
+
+## Targeted Rotation
+
+### Exclusion Restrictions
+
+There are two ID for "Mathematics". We take the ID from table `knowledge`, according to the paper.
+
+```{r}
+knowledge %>% 
+  filter(`Element Name` %>% str_detect("Mathematics")) %>% 
+  distinct(`Element ID`)
+```
+
+```{r}
+skill_mapping %>% 
+  filter(`Element Name` %>% str_detect("Mathematics"))
+```
+
+```{r}
+# 假设 pca_result 是你之前运行的结果
+# 假设你已经知道这三个技能的 Element ID
+# 你需要将 "ID_math", "ID_mech", "ID_social" 替换成真实的Element ID
+math_id <- "2.C.4.a"   # 示例ID: Mathematics Knowledge
+mech_id <- "2.C.3.e"   # 示例ID: Mechanical Knowledge
+social_id <- "2.B.1.a" # 示例ID: Social Perceptiveness
+
+# 从PCA载荷矩阵中提取这三个技能的向量 (在PC1, PC2, PC3上的坐标)
+# pca_result$rotation 是原始技能在主成分上的载荷
+anchor_vectors <- t(pca_result$rotation[c(math_id, mech_id, social_id), 1:3])
+
+# 查看一下，每一列代表一个锚点技能的向量
+# 行是PC1, PC2, PC3
+print(anchor_vectors)
+```
+
+### Gram-Schmidt Orthogonalization
+
+```{r}
+# 设定锚点技能的ID，并按照理论上的层级排序
+# 1. Cognitive (最基础) -> 2. Manual -> 3. Interpersonal
+anchor_ids <- c("2.C.4.a", "2.C.3.e", "2.B.1.a") # 您的锚点ID
+
+# 从PCA载荷矩阵中提取这三个技能在PC1, PC2, PC3上的坐标向量
+v1 <- pca_result$rotation[anchor_ids[1], 1:3] # Cognitive 锚点向量
+v2 <- pca_result$rotation[anchor_ids[2], 1:3] # Manual 锚点向量
+v3 <- pca_result$rotation[anchor_ids[3], 1:3] # Interpersonal 锚点向量
+```
+
+```{r}
+# --- 开始 Gram-Schmidt 流程 ---
+
+# 1. 构造第一个正交基向量 u1 (新的 Cognitive 轴)
+# 第一个向量只是简单地被“固定”下来
+u1_raw <- v1
+
+# 2. 构造第二个正交基向量 u2 (新的 Manual 轴)
+# 计算 v2 在 u1 上的投影
+proj_v2_on_u1 <- as.numeric(c(v2 %*% u1_raw) / c(u1_raw %*% u1_raw)) * u1_raw
+# 从 v2 中减去这个投影
+u2_raw <- v2 - proj_v2_on_u1
+
+# 3. 构造第三个正交基向量 u3 (新的 Interpersonal 轴)
+# 计算 v3 在 u1 和 u2 上的投影
+proj_v3_on_u1 <- as.numeric(c(v3 %*% u1_raw) / c(u1_raw %*% u1_raw)) * u1_raw
+proj_v3_on_u2 <- as.numeric(c(v3 %*% u2_raw) / c(u2_raw %*% u2_raw)) * u2_raw
+# 从 v3 中减去这两个投影
+u3_raw <- v3 - proj_v3_on_u1 - proj_v3_on_u2
+
+# --- 标准化 (Normalization) ---
+# 最后，将这三个新的正交向量的长度都缩放为1，使它们成为“单位向量”
+u1 <- u1_raw / sqrt(sum(u1_raw^2))
+u2 <- u2_raw / sqrt(sum(u2_raw^2))
+u3 <- u3_raw / sqrt(sum(u3_raw^2))
+
+# --- 合成最终的旋转矩阵 R ---
+# 这个矩阵的列就是我们新构造出的正交基
+rotation_matrix_R <- cbind(u1, u2, u3)
+colnames(rotation_matrix_R) <- c("Cognitive", "Manual", "Interpersonal")
+
+print("通过Gram-Schmidt构造出的正交旋转矩阵 R:")
+print(rotation_matrix_R)
+```
+
+验证一下是否真的正交
+
+```{r}
+# 1. 计算 R的转置乘以R
+#    在R中，t()函数用于转置，%*%用于矩阵乘法
+identity_check <- t(rotation_matrix_R) %*% rotation_matrix_R
+
+# 2. 打印出结果，并与单位矩阵进行比较
+print("验证 R^T * R 的结果:")
+print(identity_check)
+```
+
+```{r}
+# 应用于职业得分
+original_scores <- pca_result$x[, 1:3]
+final_skill_indices <- original_scores %*% rotation_matrix_R
+
+# 应用于技能载荷（用于验证或解读）
+original_loadings <- pca_result$rotation[, 1:3]
+new_loadings <- original_loadings %*% rotation_matrix_R
+
+# 转换成数据框方便查看
+final_skill_indices_df <- as.data.frame(final_skill_indices)
+
+# 别忘了加上职业代码
+final_skill_indices_df$`O*NET-SOC Code` <- rownames(final_skill_indices)
+```
+
+### Scaling to \[0, 1\]
+
+```{r}
+# 复制一份数据框，以免覆盖原始结果
+scaled_indices_df <- final_skill_indices_df
+
+# 对 Cognitive 列进行缩放
+min_cog <- min(scaled_indices_df$Cognitive, na.rm = TRUE)
+max_cog <- max(scaled_indices_df$Cognitive, na.rm = TRUE)
+scaled_indices_df$Cognitive_scaled <- (scaled_indices_df$Cognitive - min_cog) / (max_cog - min_cog)
+
+# 对 Manual 列进行缩放
+min_man <- min(scaled_indices_df$Manual, na.rm = TRUE)
+max_man <- max(scaled_indices_df$Manual, na.rm = TRUE)
+scaled_indices_df$Manual_scaled <- (scaled_indices_df$Manual - min_man) / (max_man - min_man)
+
+# 对 Interpersonal 列进行缩放
+min_int <- min(scaled_indices_df$Interpersonal, na.rm = TRUE)
+max_int <- max(scaled_indices_df$Interpersonal, na.rm = TRUE)
+scaled_indices_df$Interpersonal_scaled <- (scaled_indices_df$Interpersonal - min_int) / (max_int - min_int)
+
+# 查看最终结果
+# 您会看到新的三列，其数值都在0和1之间
+head(scaled_indices_df)
+```
+
+```{r}
+job_mapping %>% 
+  filter(Title %>% str_detect("Setters, Operators, and Tenders, Metal and Plastic"))
+```
+
+```{r}
+scaled_indices_df %>% 
+  filter(`O*NET-SOC Code` == "51-4072.00")
+```
+
+## Expansion
+
+```{r}
+# 计算每个技能维度的方差
+var_cognitive <- var(scaled_indices_df$Cognitive)
+var_manual <- var(scaled_indices_df$Manual)
+var_interpersonal <- var(scaled_indices_df$Interpersonal)
+
+# 将方差存入一个命名的向量中，方便后续使用
+variance_weights <- c(
+  Cognitive = var_cognitive,
+  Manual = var_manual,
+  Interpersonal = var_interpersonal
+)
+
+print("各技能维度的方差权重:")
+print(variance_weights)
+```
+
+```{r}
+# scaled_indices_df上一步得到的，包含 scaled 列的数据框
+# 我们需要的数据是 Cognitive_scaled, Manual_scaled, Interpersonal_scaled
+
+# 为了方便，我们先只保留需要的列
+r_scores_df <- scaled_indices_df %>%
+  select(`O*NET-SOC Code`, 
+         Cognitive = Cognitive_scaled, 
+         Manual = Manual_scaled, 
+         Interpersonal = Interpersonal_scaled)
+
+# 计算加权后的得分 (分子部分)
+weighted_scores_df <- r_scores_df %>%
+  mutate(
+    weighted_Cognitive = Cognitive * variance_weights['Cognitive'],
+    weighted_Manual = Manual * variance_weights['Manual'],
+    weighted_Interpersonal = Interpersonal * variance_weights['Interpersonal']
+  )
+
+# 计算归一化分母 (对每个职业/每一行求和)
+# 使用 rowSums() 函数
+weighted_scores_df$sum_of_weights <- rowSums(
+  weighted_scores_df[, c("weighted_Cognitive", "weighted_Manual", "weighted_Interpersonal")]
+)
+
+# 计算最终的 Omega 分数
+omega_df <- weighted_scores_df %>%
+  mutate(
+    omega_Cognitive = weighted_Cognitive / sum_of_weights,
+    omega_Manual = weighted_Manual / sum_of_weights,
+    omega_Interpersonal = weighted_Interpersonal / sum_of_weights
+  ) %>%
+  # 选择最终需要的列
+  select(`O*NET-SOC Code`, omega_Cognitive, omega_Manual, omega_Interpersonal)
+
+# 查看最终结果
+head(omega_df)
+
+# (验证) 检查任一行的omega分数之和是否为1
+print("第一行omega分数的和:")
+print(sum(omega_df[1, c("omega_Cognitive", "omega_Manual", "omega_Interpersonal")]))
+```
+
+```{r}
+job_mapping %>% 
+  filter(Title %>% str_detect("Electrical Engineers"))
+```
+
+```{r}
+omega_df %>% 
+  filter(`O*NET-SOC Code` == "17-2071.00")
+```
