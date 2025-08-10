@@ -1,0 +1,9 @@
+Item 8. Financial Statements and Supplementary Data.
+
+Notes to Consolidated Financial Statements.
+
+Note 1. Summary of Significant Accounting Policies.
+
+Inventories: Inventories, which consist of raw materials, work-in-process, and finished goods, are stated at the lower of cost or net realizable value. Cost is determined using the first-in, first-out (FIFO) method. We regularly review inventory quantities on hand and record a provision for excess and obsolete inventory based on our estimates of future demand and market conditions.
+
+Derivative Instruments and Hedging Activities: We are exposed to certain risks relating to our ongoing business operations, including foreign currency exchange rate risk and commodity price risk. We use derivative instruments, primarily forward contracts and swaps, to manage these risks. We account for these derivatives as cash flow hedges. We formally document all relationships between hedging instruments and hedged items. We assess, both at the hedge's inception and on an ongoing basis, whether the derivatives that are used in hedging transactions are highly effective in offsetting changes in cash flows of hedged items. Changes in the fair value of these derivatives are recorded in other comprehensive income until the hedged item is recognized in earnings.

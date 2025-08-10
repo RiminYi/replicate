@@ -1,0 +1,7 @@
+Item 7. Management's Discussion and Analysis of Financial Condition and Results of Operations.
+
+Critical Accounting Policies and Estimates.
+
+Revenue Recognition: We derive our revenue primarily from subscription-based services and perpetual software licenses. In accordance with ASC 606, we recognize revenue when control of the promised goods or services is transferred to our customers. Our contracts with customers often include multiple performance obligations. For these contracts, we allocate the transaction price to each performance obligation based on its relative standalone selling price, and recognize revenue as each performance obligation is satisfied. Management is required to make significant judgments when determining the standalone selling price.
+
+Goodwill and Intangible Assets: A significant portion of our assets consists of goodwill and intangible assets resulting from past business combinations. We test goodwill for impairment annually, or more frequently if events indicate a potential impairment. The impairment test involves comparing the fair value of each reporting unit with its carrying amount. We determine the fair value of our reporting units using a discounted cash flow analysis, which requires management to make significant estimates about future revenues, discount rates, and growth rates. An impairment charge is recognized for the amount by which the carrying amount exceeds the reporting unit's fair value.
