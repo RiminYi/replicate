@@ -1,0 +1,9 @@
+Good morning everyone, and thank you for joining our third-quarter earnings call. This quarter, we delivered solid results, with revenue growing 8% year-over-year, driven by strong performance in our renewables segment. Our strategic focus on clean energy continues to pay dividends. We successfully brought the new 'Seaside' wind power project online, adding 200 megawatts of capacity to the grid. This project is a major step towards our commitment to renewable energy and helps us navigate the evolving regulatory landscape, especially with the new carbon tax discussions. We are also investing heavily in grid modernization to support a more distributed power generation model. Our capital expenditure in this area was $50 million this quarter.
+
+Looking ahead, we see significant opportunities but also challenges. The push for energy efficient solutions is accelerating, and we are well-positioned. However, we must remain vigilant about supply chain constraints.
+
+Now, I'll open the floor for questions.
+
+Operator: The first question comes from John Doe at Global Analysts.
+
+John Doe: Thank you. A great quarter. Could you elaborate on your plans for battery storage solutions? With the increase in intermittent renewable sources, how do you plan to ensure grid stability and manage peak load? We believe this is critical for long-term success.
